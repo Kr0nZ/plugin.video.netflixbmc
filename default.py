@@ -15,7 +15,10 @@ import xbmcplugin
 import xbmcgui
 import xbmcaddon
 import xbmcvfs
-
+from bs4 import BeautifulSoup
+from urlparse import urlparse
+from metahandler import metahandlers
+from metahandler.thetvdbapi import TheTVDB
 
 socket.setdefaulttimeout(30)
 pluginhandle = int(sys.argv[1])
@@ -90,77 +93,194 @@ while (username == "" or password == ""):
 
 def index():
     if login():
+        addDir("**TEST** Website Like", "", 'main', "", "website")
         addDir(translation(30011), "", 'main', "", "movie")
         addDir(translation(30012), "", 'main', "", "tv")
         xbmcplugin.endOfDirectory(pluginhandle)
 
 
 def main(type):
-    addDir(translation(30002), urlMain+"/MyList?leid=595&link=seeall", 'listVideos', "", type)
-    addDir(translation(30010), "", 'listViewingActivity', "", type)
-    addDir(translation(30003), urlMain+"/WiRecentAdditionsGallery?nRR=releaseDate&nRT=all&pn=1&np=1&actionMethod=json", 'listVideos', "", type)
-    addDir(translation(30004), urlMain+"/WiHD?dev=PC&pn=1&np=1&actionMethod=json", 'listVideos', "", type)
-    if type=="tv":
-        addDir(translation(30005), urlMain+"/WiGenre?agid=83&pn=1&np=1&actionMethod=json", 'listVideos', "", type)
-    addDir(translation(30007), "WiGenre", 'listGenres', "", type)
-    addDir(translation(30009), "KidsAltGenre", 'listGenres', "", type)
-    addDir(translation(30008), "", 'search', "", type)
-    xbmcplugin.endOfDirectory(pluginhandle)
+    if type=="website":
+      addDir(translation(30008), "", 'search', "", type)
+      addDir('Browse', "WiGenre", 'listGenres', "", type)
+      addDir('Recently Watched', "", 'listViewingActivity', "", type)
 
+      content = opener.open("http://www.netflix.com/").read()
+      #print content
+      contSplit = content.split('<ul class="exp">')[1]
+      expUrl = re.compile('href="(.+?)"', re.DOTALL).findall(contSplit)[0]
+      content = opener.open(expUrl).read()
+
+      soup = BeautifulSoup(content)
+      mrows = soup.find_all(class_="mrow")
+      for a in mrows:
+        row = a.find(id=re.compile('slider_\d*'))
+        if row == None or len(a.find_all(class_="agMovie"))==0:
+          continue
+
+        h3 = a.find_all('h3')
+        h3 = h3[-1]
+        #print h3.text.encode('utf-8').strip()
+        #print row['id']
+        addDir(h3.text.encode('utf-8').strip(), expUrl+'#'+row['id'], 'listVideos', '', type)
+
+    else:
+      addDir(translation(30002), urlMain+"/MyList?leid=595&link=seeall", 'listVideos', "", type)
+      addDir(translation(30010), "", 'listViewingActivity', "", type)
+      addDir(translation(30003), urlMain+"/WiRecentAdditionsGallery?nRR=releaseDate&nRT=all&pn=1&np=1&actionMethod=json", 'listVideos', "", type)
+      addDir(translation(30004), urlMain+"/WiHD?dev=PC&pn=1&np=1&actionMethod=json", 'listVideos', "", type)
+      if type=="tv":
+          addDir(translation(30005), urlMain+"/WiGenre?agid=83&pn=1&np=1&actionMethod=json", 'listVideos', "", type)
+      addDir(translation(30007), "WiGenre", 'listGenres', "", type)
+      addDir(translation(30009), "KidsAltGenre", 'listGenres', "", type)
+      addDir(translation(30008), "", 'search', "", type)
+    xbmcplugin.endOfDirectory(pluginhandle)
 
 def listVideos(url, type):
     if not singleProfile:
         setProfile()
-    xbmcplugin.setContent(pluginhandle, "movies")
-    content = opener.open(url).read()
-    if not 'id="page-LOGIN"' in content:
-        if singleProfile and 'id="page-ProfilesGate"' in content:
-            forceChooseProfile()
-        else:
-            if '<div id="queue"' in content:
-                content = content[content.find('<div id="queue"'):]
-            content = content.replace("\\t","").replace("\\n", "").replace("\\", "")
-            match1 = re.compile('<span id="dbs(.+?)_.+?alt=".+?"', re.DOTALL).findall(content)
-            match2 = re.compile('<span class="title.*?"><a id="b(.+?)_', re.DOTALL).findall(content)
-            match3 = re.compile('<a href="http://dvd.netflix.com/WiPlayer\?movieid=(.+?)&', re.DOTALL).findall(content)
-            match4 = re.compile('<a class="playHover" href=".+?WiPlayer\?movieid=(.+?)&', re.DOTALL).findall(content)
-            match5 = re.compile('"boxart":".+?","titleId":(.+?),', re.DOTALL).findall(content)
-            if match1:
-                match = match1
-            elif match2:
-                match = match2
-            elif match3:
-                match = match3
-            elif match4:
-                match = match4
-            elif match5:
-                match = match5
-            for videoID in match:
-                listVideo(videoID, "", "", False, False, type)
-            match1 = re.compile('&pn=(.+?)&', re.DOTALL).findall(url)
-            match2 = re.compile('&from=(.+?)&', re.DOTALL).findall(url)
-            matchApiRoot = re.compile('"API_ROOT":"(.+?)"', re.DOTALL).findall(content)
-            matchApiBase = re.compile('"API_BASE_URL":"(.+?)"', re.DOTALL).findall(content)
-            if match1:
-                currentPage = match1[0]
-                nextPage = str(int(currentPage)+1)
-                addDir(translation(30001), url.replace("&pn="+currentPage+"&", "&pn="+nextPage+"&"), 'listVideos', "", type)
-            elif "agid=" in url:
-                genreID = url[url.find("agid=")+5:]
-                addDir(translation(30001), matchApiRoot[0]+matchApiBase[0]+"/wigenre?genreId="+genreID+"&full=false&from=51&to=100&_retry=0", 'listVideos', "", type)
-            elif match2:
-                currentFrom = match2[0]
-                nextFrom = str(int(currentFrom)+50)
-                currentTo = str(int(currentFrom)+49)
-                nextTo = str(int(currentFrom)+99)
-                addDir(translation(30001), url.replace("&from="+currentFrom+"&", "&from="+nextFrom+"&").replace("&to="+currentTo+"&", "&to="+nextTo+"&"), 'listVideos', "", type)
-            if forceView:
-                xbmc.executebuiltin('Container.SetViewMode('+viewIdVideos+')')
-            xbmcplugin.endOfDirectory(pluginhandle)
-    else:
-        deleteCookies()
-        xbmc.executebuiltin('XBMC.Notification(NetfliXBMC:,'+str(translation(30127))+',15000)')
+    if type=='website':
+      sliderId = url.split('#')[1]
+      url = url.split('#')[0]
+      content = opener.open(url).read()
+      soup = BeautifulSoup(content)
+      firstSlider = soup.find(id=sliderId)
+      extraSlider = ''
+      jsSliderVar = ''
 
+      for a in soup.find_all('script'):
+        if 'sliders' in str(a):
+          jsSliderVar = str(a)
+          break
+      strStart = jsSliderVar.find('{',jsSliderVar.find('slider'))
+      bracket = 0
+      tmpStr = ''
+      while True:
+        tmpStr = tmpStr + jsSliderVar[strStart]
+        if jsSliderVar[strStart-1] != '\\':
+          if jsSliderVar[strStart] == '{':
+            bracket = bracket + 1
+          elif jsSliderVar[strStart] == '}':
+            bracket = bracket - 1
+        strStart = strStart + 1
+        if bracket < 1:
+          break
+
+      for a in json.loads(tmpStr)['data']['initData']:
+        if a['domId'] == sliderId:
+          extraSlider = BeautifulSoup(a['remainderHTML'])
+          break
+
+      items = firstSlider.find_all(class_="agMovie") + extraSlider.find_all(class_="agMovie")
+      for a in items:
+        title = a.find('img')['alt']
+        try:
+          logo = a.find('img')['src']
+        except:
+          try:
+            logo = a.find('img')['hsrc']
+          except:
+            logo = ''
+
+        url = a.find('a')['href']
+        splitUrl = url.split('?')
+        url = splitUrl[0]
+        splitParams = splitUrl[1].replace('&amp;','&').split('&')
+
+        for b in splitParams:
+          if b.startswith('movieid'):
+            url = splitUrl[0] + '?' + b
+            videoID = b.split('=')[1]
+        print 'Title: %s, Logo: %s, Url: %s' % (title.encode('utf-8'), logo.encode('utf-8'), url.encode('utf-8'))
+
+        success = listVideo(videoID.encode("utf-8"), title.encode("utf-8"), logo.encode("utf-8"), False, False, 'both')
+        print success
+
+      xbmcplugin.endOfDirectory(pluginhandle)
+
+    else:
+      xbmcplugin.setContent(pluginhandle, "movies")
+      content = opener.open(url).read()
+      if not 'id="page-LOGIN"' in content:
+          if singleProfile and 'id="page-ProfilesGate"' in content:
+              forceChooseProfile()
+          else:
+              if '<div id="queue"' in content:
+                  content = content[content.find('<div id="queue"'):]
+              content = content.replace("\\t","").replace("\\n", "").replace("\\", "")
+              match1 = re.compile('<span id="dbs(.+?)_.+?alt=".+?"', re.DOTALL).findall(content)
+              match2 = re.compile('<span class="title.*?"><a id="b(.+?)_', re.DOTALL).findall(content)
+              match3 = re.compile('<a href="http://dvd.netflix.com/WiPlayer\?movieid=(.+?)&', re.DOTALL).findall(content)
+              match4 = re.compile('<a class="playHover" href=".+?WiPlayer\?movieid=(.+?)&', re.DOTALL).findall(content)
+              match5 = re.compile('"boxart":".+?","titleId":(.+?),', re.DOTALL).findall(content)
+              if match1:
+                  match = match1
+              elif match2:
+                  match = match2
+              elif match3:
+                  match = match3
+              elif match4:
+                  match = match4
+              elif match5:
+                  match = match5
+              for videoID in match:
+                  listVideo(videoID, "", "", False, False, type)
+              match1 = re.compile('&pn=(.+?)&', re.DOTALL).findall(url)
+              match2 = re.compile('&from=(.+?)&', re.DOTALL).findall(url)
+              matchApiRoot = re.compile('"API_ROOT":"(.+?)"', re.DOTALL).findall(content)
+              matchApiBase = re.compile('"API_BASE_URL":"(.+?)"', re.DOTALL).findall(content)
+              if match1:
+                  currentPage = match1[0]
+                  nextPage = str(int(currentPage)+1)
+                  addDir(translation(30001), url.replace("&pn="+currentPage+"&", "&pn="+nextPage+"&"), 'listVideos', "", type)
+              elif "agid=" in url:
+                  genreID = url[url.find("agid=")+5:]
+                  addDir(translation(30001), matchApiRoot[0]+matchApiBase[0]+"/wigenre?genreId="+genreID+"&full=false&from=51&to=100&_retry=0", 'listVideos', "", type)
+              elif match2:
+                  currentFrom = match2[0]
+                  nextFrom = str(int(currentFrom)+50)
+                  currentTo = str(int(currentFrom)+49)
+                  nextTo = str(int(currentFrom)+99)
+                  addDir(translation(30001), url.replace("&from="+currentFrom+"&", "&from="+nextFrom+"&").replace("&to="+currentTo+"&", "&to="+nextTo+"&"), 'listVideos', "", type)
+              if forceView:
+                  xbmc.executebuiltin('Container.SetViewMode('+viewIdVideos+')')
+              xbmcplugin.endOfDirectory(pluginhandle)
+      else:
+          deleteCookies()
+          xbmc.executebuiltin('XBMC.Notification(NetfliXBMC:,'+str(translation(30127))+',15000)')
+
+def getMovieMeta(title, year):
+  pass
+
+def getSeriesMeta(title, year):
+  pass
+  metaget=metahandlers.MetaData()
+  tvdb = TheTVDB(language='en')
+
+  titleCut = 0
+  seriesList = []
+  while True:
+    titleSplit = title.split(" ")
+    if titleCut >= len(titleSplit):
+      break
+    newTitle = ''
+    for a in range(len(titleSplit)-titleCut):
+      newTitle = newTitle + titleSplit[a]
+    titleCut = titleCut + 1
+    show_list=tvdb.get_matching_shows(newTitle)
+    for a in show_list:
+      if a[1].startswith(newTitle):
+        seriesList.append(a)
+    if len(seriesList) > 0:
+      break
+
+  print "Title: %s, Year: %s" % (title, year)
+  for a in seriesList:
+    print a
+
+
+def getEpisodeMeta(title, year):
+  pass
 
 def listVideo(videoID, title, thumbUrl, tvshowIsEpisode, hideMovies, type):
     videoDetails = getVideoInfo(videoID)
@@ -469,7 +589,7 @@ def playVideo(id):
             subprocess.Popen('"'+utilityPath+'"'+' focusOnly=yes', shell=False)
     if remoteControl:
         myWindow = window('window.xml', addon.getAddonInfo('path'), 'default',)
-        myWindow.doModal()    
+        myWindow.doModal()
 
 
 def configureUtility():
@@ -663,7 +783,6 @@ def addDir(name, url, mode, iconimage, type=""):
     liz.addContextMenuItems(entries)
     ok = xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=u, listitem=liz, isFolder=True)
     return ok
-
 
 def addVideoDir(name, url, mode, iconimage, videoType="", desc="", duration="", year="", mpaa="", director="", genre="", rating=""):
     filename = (''.join(c for c in unicode(url, 'utf-8') if c not in '/\\:?"*|<>')).strip()+".jpg"
